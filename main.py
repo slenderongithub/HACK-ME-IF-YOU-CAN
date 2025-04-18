@@ -1,108 +1,127 @@
-import os
-import json
-import bcrypt
-import jwt
-from fastapi import FastAPI, HTTPException, Depends, status
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi import FastAPI, HTTPException, Depends
+from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from pydantic import BaseModel
+from passlib.context import CryptContext
+from jose import jwt, JWTError
+import json
+import uuid
 from datetime import datetime, timedelta
-from typing import List
 
-# Secret key to encode/decode JWT (should be kept secret)
-SECRET_KEY = "your_secret_key"
-ALGORITHM = "HS256"
-
-# In-memory user data and leaderboard
-users_db = {}  # For storing registered users
-leaderboard = []  # For storing the leaderboard
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-
-# FastAPI instance
 app = FastAPI()
 
-# Pydantic models
+# JWT & security
+SECRET_KEY = "your_secret_key"
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+
+# User model
 class User(BaseModel):
     username: str
     password: str
 
-class Score(BaseModel):
-    username: str
-    score: int
+# Token model
+class Token(BaseModel):
+    access_token: str
+    token_type: str
 
-# Utility function to hash passwords
+# Load or create user data
+def load_users():
+    try:
+        with open("users.json", "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+
+def save_users(users):
+    with open("users.json", "w") as f:
+        json.dump(users, f, indent=2)
+
+# Password hashing
 def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+    return pwd_context.hash(password)
 
-# Utility function to verify passwords
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+def verify_password(plain: str, hashed: str) -> bool:
+    return pwd_context.verify(plain, hashed)
 
-# Function to create JWT token
-def create_access_token(data: dict, expires_delta: timedelta = timedelta(hours=1)):
+# JWT creation
+def create_access_token(data: dict, expires_delta: timedelta = None):
     to_encode = data.copy()
-    expire = datetime.utcnow() + expires_delta
+    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=15))
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-# Function to get current user from the JWT token
+# Auth dependency
 def get_current_user(token: str = Depends(oauth2_scheme)):
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+    credentials_exception = HTTPException(status_code=401, detail="Invalid token")
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
         if username is None:
             raise credentials_exception
-    except jwt.PyJWTError:
+        users = load_users()
+        user = users.get(username)
+        if not user:
+            raise credentials_exception
+        return user
+    except JWTError:
         raise credentials_exception
-    return username
 
-# Register a new user
+# Register
 @app.post("/register")
 def register(user: User):
-    if user.username in users_db:
+    users = load_users()
+    if user.username in users:
         raise HTTPException(status_code=400, detail="Username already registered")
     
-    hashed_password = hash_password(user.password)
-    users_db[user.username] = {"password": hashed_password, "score": 0}
-    
-    return {"msg": "User registered successfully"}
+    users[user.username] = {
+        "id": str(uuid.uuid4()),
+        "username": user.username,
+        "hashed_password": hash_password(user.password),
+        "score": 0
+    }
+    save_users(users)
+    return {"msg": "User registered successfully!"}
 
-# Login user and return JWT token
-@app.post("/login")
-def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
-    user = users_db.get(form_data.username)
-    if not user or not verify_password(form_data.password, user['password']):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+# Login
+@app.post("/login", response_model=Token)
+def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    users = load_users()
+    user = users.get(form_data.username)
+    if not user or not verify_password(form_data.password, user["hashed_password"]):
+        raise HTTPException(status_code=400, detail="Incorrect username or password")
     
-    access_token = create_access_token(data={"sub": form_data.username})
+    access_token = create_access_token(data={"sub": form_data.username}, expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     return {"access_token": access_token, "token_type": "bearer"}
 
-# Submit a score
+# Submit score (protected)
 @app.post("/submit-score")
-def submit_score(score: Score, current_user: str = Depends(get_current_user)):
-    if score.username != current_user:
-        raise HTTPException(status_code=400, detail="You cannot submit a score for another user")
-    
-    # Save the score and timestamp
-    timestamp = datetime.now().strftime("%d-%m-%Y %H:%M")
-    leaderboard.append({"username": score.username, "score": score.score, "timestamp": timestamp})
-    
-    # Keep leaderboard sorted by score
-    leaderboard.sort(key=lambda x: x['score'], reverse=True)
-    return {"msg": "Score submitted successfully", "timestamp": timestamp}
+def submit_score(score: int, current_user: dict = Depends(get_current_user)):
+    users = load_users()
+    username = current_user["username"]
 
-# Get leaderboard
-@app.get("/leaderboard", response_model=List[Score])
+    # Update if new score is higher
+    if score > users[username]["score"]:
+        users[username]["score"] = score
+        save_users(users)
+        return {"msg": "New high score saved!"}
+    else:
+        return {"msg": "Score not high enough to update."}
+
+# Leaderboard
+@app.get("/leaderboard")
 def get_leaderboard():
-    return leaderboard
+    users = load_users()
+    sorted_users = sorted(users.values(), key=lambda x: x["score"], reverse=True)
 
-# Logout - Remove the token from the client side (client needs to handle)
-@app.post("/logout")
-def logout():
-    return {"msg": "Logged out successfully. Remove token from client storage."}
-    
+    leaderboard = []
+    for idx, user in enumerate(sorted_users, start=1):
+        leaderboard.append({
+            "rank": idx,
+            "username": user["username"],
+            "score": user["score"]
+        })
+
+    return leaderboard
