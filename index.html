@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hack Me If You Can</title>
+    <link rel="stylesheet" href="assets/css/styles.css">
+</head>
+<body>
+    <!-- Matrix Animation Screen -->
+    <div id="matrix-screen">
+        <canvas id="matrix-canvas"></canvas>
+        <div class="matrix-overlay">
+            <h1 id="typing-text">Can you survive the internet?</h1>
+            <p>We dare you</p>
+            <button id="start-btn">Start</button>
+        </div>
+    </div>
+
+    <!-- Main Website Screen -->
+    <div id="main-screen" class="hidden">
+        <header>
+            <nav>
+                <ul class="nav-links">
+                    <li><a href="#" id="about-link">About</a></li>
+                    <li><a href="#" id="contact-link">Contact</a></li>
+                </ul>
+                <div id="auth-buttons">
+                    <button id="login-btn" onclick="location.href='login.html'">Login</button>
+                    <button id="signup-btn" onclick="location.href='signup.html'">Sign Up</button>
+                </div>
+            </nav>
+        </header>
+        <main>
+            <section class="hero-section">
+                <h1>Welcome to Hack Me If You Can</h1>
+                <p>Test your cybersecurity skills and learn how to stay safe online.</p>
+                <img src="assets/images/hero-image.png" alt="Cybersecurity Illustration">
+            </section>
+            <section class="options-section">
+                <div class="option-card">
+                    <h2>Take the Test</h2>
+                    <p>Challenge yourself with real-world scenarios.</p>
+                    <button id="take-test-btn" onclick="checkLogin('quiz.html')">Start Now</button>
+                </div>
+                <div class="option-card">
+                    <h2>View Leaderboard</h2>
+                    <p>See how you rank among other users.</p>
+                    <button id="leaderboard-btn" onclick="checkLogin('leaderboard.html')">View</button>
+                </div>
+                <div class="option-card">
+                    <h2>View Your Scorecard</h2>
+                    <p>Analyze your performance and improve.</p>
+                    <button id="scorecard-btn" onclick="checkLogin('score.html')">View</button>
+                </div>
+                <div class="option-card">
+                    <h2>Tips to Stay Safe</h2>
+                    <p>Learn essential tips to protect yourself online.</p>
+                    <button id="tips-btn" onclick="checkLogin('tips.html')">Learn More</button>
+                </div>
+            </section>
+        </main>
+        <footer>
+            <p>&copy; 2025 Hack Me If You Can</p>
+        </footer>
+    </div>
+
+    <script>
+        function checkLogin(targetPage) {
+            const isLoggedIn = localStorage.getItem('isLoggedIn');
+            if (isLoggedIn === 'true') {
+                location.href = targetPage;
+            } else {
+                alert('Please log in or sign up to access this feature.');
+                location.href = 'login.html';
+            }
+        }
+    </script>
+    <script src="assets/js/app.js"></script>
+</body>
+</html>
